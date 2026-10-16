@@ -1,0 +1,10 @@
+.env
+__pycache__/
+.ipynb_checkpoints/
+*.chk
+*.h5
+*.log
+results/opt/*/*.log
+solids/qe/**/tmp/
+solids/qe/**/*.save/
+*.wfc*

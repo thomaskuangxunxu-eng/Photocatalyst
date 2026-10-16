@@ -1,0 +1,30 @@
+name,class,smiles,charge,expected_formula,mp_id,exp_lambda_max_nm,exp_gap_eV,species_note,priority,reference
+anthraquinone,organic/quinone,O=C1c2ccccc2C(=O)c2ccccc21,0,C14H8O2,,~325,,neutral; weak n-pi* tail near 400 nm,1,Romero & Nicewicz Chem Rev 2016 (review)
+anthraquinone-2-sulfonate,organic/quinone,O=C1c2ccccc2C(=O)c2cc(S(=O)(=O)[O-])ccc21,-1,C14H7O5S-,,~330,,sulfonate anion (water-soluble AQS),2,to fill
+benzophenone,organic/ketone (HAT),O=C(c1ccccc1)c1ccccc1,0,C13H10O,,~340 (n-pi*),,neutral; triplet HAT photocatalyst,1,to fill
+thioxanthone,organic/ketone,O=c1c2ccccc2sc2ccccc12,0,C13H8OS,,~378,,neutral,2,to fill
+fluorescein,organic/xanthene dye,[O-]C(=O)c1ccccc1-c1c2ccc(=O)cc-2oc2cc([O-])ccc12,-2,C20H10O5-2,,~490,,dianion (absorbing form in basic water),1,to fill
+eosin Y,organic/xanthene dye,[O-]C(=O)c1ccccc1-c1c2cc(Br)c(=O)c(Br)c-2oc2c(Br)c([O-])c(Br)cc12,-2,C20H6Br4O5-2,,~517,,dianion (absorbing form in water),1,Hari & Koenig Chem Commun 2014 (eosin review)
+rose bengal,organic/xanthene dye,[O-]C(=O)c1c(Cl)c(Cl)c(Cl)c(Cl)c1-c1c2cc(I)c(=O)c(I)c-2oc2c(I)c([O-])c(I)cc12,-2,C20H2Cl4I4O5-2,,~549,,dianion; iodine needs ECP,3,to fill
+rhodamine B,organic/xanthene dye,CCN(CC)c1ccc2c(-c3ccccc3C(=O)O)c3ccc(=[N+](CC)CC)cc3oc2c1,1,C28H31N2O3+,,~554,,cation (acid form),2,to fill
+methylene blue,organic/phenothiazinium,CN(C)c1ccc2nc3ccc(=[N+](C)C)cc-3sc2c1,1,C16H18N3S+,,~664,,cation,1,to fill
+Mes-Acr-Me+,organic/acridinium,C[n+]1c2ccccc2c(-c2c(C)cc(C)cc2C)c2ccccc21,1,C23H22N+,,~430,,cation (Fukuzumi catalyst),1,Romero & Nicewicz Chem Rev 2016 (review)
+4CzIPN,organic/donor-acceptor (TADF),N#Cc1c(-n2c3ccccc3c3ccccc32)c(C#N)c(-n2c3ccccc3c3ccccc32)c(-n2c3ccccc3c3ccccc32)c1-n1c2ccccc2c2ccccc21,0,C56H32N6,,~435,,neutral; 94 atoms (expensive),3,to fill
+10-phenylphenothiazine,organic/phenothiazine,c1ccc(cc1)N1c2ccccc2Sc2ccccc12,0,C18H13NS,,~320,,neutral; strongly reducing excited state,2,to fill
+riboflavin,organic/flavin,Cc1cc2nc3c(=O)[nH]c(=O)nc-3n(C[C@H](O)[C@H](O)[C@H](O)CO)c2cc1C,0,C17H20N4O6,,~445,,neutral,2,to fill
+perylene diimide (N-H),organic/rylene,O=C1NC(=O)c2ccc3c4ccc5C(=O)NC(=O)c6ccc(c7ccc1c2c37)c4c56,0,C24H10N2O4,,~525,,neutral parent PDI,3,to fill
+Ru(bpy)3 2+,metal complex,,2,RuC30H24N6+2,,~452,,needs ECP + careful setup; build from xyz not SMILES,later,Prier Rankic MacMillan Chem Rev 2013 (review)
+fac-Ir(ppy)3,metal complex,,0,IrC33H24N3,,~375,,needs ECP; build from xyz,later,Prier Rankic MacMillan Chem Rev 2013 (review)
+decatungstate (TBADT anion),polyoxometalate,,-4,W10O32-4,,~324,,HAT; relevant to C-H/methane activation,later,to fill
+TiO2 anatase,inorganic/oxide,,,TiO2,mp-390,,3.2,,1,to fill
+TiO2 rutile,inorganic/oxide,,,TiO2,mp-2657,,3.0,,1,to fill
+ZnO wurtzite,inorganic/oxide,,,ZnO,mp-2133,,3.37,,1,to fill
+WO3 monoclinic,inorganic/oxide,,,WO3,,,2.6-2.8,,1,to fill
+SrTiO3,inorganic/perovskite,,,SrTiO3,mp-5229,,3.2,,2,to fill
+BiVO4 monoclinic,inorganic/oxide,,,BiVO4,,,2.4,,2,to fill
+alpha-Fe2O3,inorganic/oxide,,,Fe2O3,,,2.1,,2,to fill
+Cu2O,inorganic/oxide,,,Cu2O,mp-361,,2.1,,3,to fill
+CdS wurtzite,inorganic/chalcogenide,,,CdS,mp-672,,2.4,,2,to fill
+GaN,inorganic/nitride,,,GaN,mp-804,,3.4,,3,to fill
+Ta3N5,inorganic/nitride,,,Ta3N5,,,2.1,,3,to fill
+g-C3N4,inorganic/polymeric carbon nitride,,,C3N4,,,2.7,no clean MP entry; model as heptazine oligomer or periodic sheet,2,to fill

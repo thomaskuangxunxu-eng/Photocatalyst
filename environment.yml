@@ -1,0 +1,20 @@
+name: photocat
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - numpy
+  - pandas
+  - matplotlib
+  - rdkit
+  - ase
+  - pymatgen
+  - jupyterlab
+  - requests
+  - pip:
+      - pyscf>=2.6
+      - pyscf-dispersion   # D3/D4 dispersion for PySCF (mf.disp = "d3bj")
+      - geometric          # geometry optimizer used by 02_optimize.py
+      - py3Dmol
+      - mp-api
