@@ -1,0 +1,11 @@
+slug,orbital,E_eV,core_fragment,pct_core,other_fragment,pct_other
+MesAcr,HOMO-2,-6.798,acridinium,0.2,mesityl,99.8
+MesAcr,HOMO-1,-6.794,acridinium,3.8,mesityl,96.2
+MesAcr,HOMO,-6.785,acridinium,99.1,mesityl,0.9
+MesAcr,LUMO,-3.618,acridinium,97.8,mesityl,2.2
+MesAcr,LUMO+1,-1.427,acridinium,99.1,mesityl,0.9
+eosinY,HOMO-2,-5.883,xanthene core,50.1,benzoate ring,49.9
+eosinY,HOMO-1,-5.541,xanthene core,21.4,benzoate ring,78.6
+eosinY,HOMO,-5.029,xanthene core,98.5,benzoate ring,1.5
+eosinY,LUMO,-2.075,xanthene core,95.6,benzoate ring,4.4
+eosinY,LUMO+1,-0.656,xanthene core,30.8,benzoate ring,69.2

@@ -6,15 +6,17 @@ dependencies:
   - pip
   - numpy
   - pandas
+  - scipy
   - matplotlib
+  - scikit-image      # marching cubes for orbital isosurfaces (molecules/04_orbitals.py)
   - rdkit
-  - ase
+  - pyscf             # tested with 2.14.0
+  - geometric         # geometry optimizer used by molecules/02_optimize.py
+  - py3dmol
   - pymatgen
-  - jupyterlab
+  - ase
   - requests
   - pip:
-      - pyscf>=2.6
-      - pyscf-dispersion   # D3/D4 dispersion for PySCF (mf.disp = "d3bj")
-      - geometric          # geometry optimizer used by 02_optimize.py
-      - py3Dmol
-      - mp-api
+      - mp-api        # Materials Project client (solids/02_materials_project.py)
+      # - pyscf-dispersion   # D3/D4. In the tested env its libs-dftd3 failed to load and broke
+      #                      # `import pyscf`; utils/common.py works around it, but D3 is then unavailable.

@@ -1,10 +1,13 @@
 .env
+.mp_key
 __pycache__/
 .ipynb_checkpoints/
+.DS_Store
+._*
 *.chk
 *.h5
 *.log
-results/opt/*/*.log
+results/molecules/cubes/*.cube
 solids/qe/**/tmp/
 solids/qe/**/*.save/
 *.wfc*

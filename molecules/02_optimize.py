@@ -1,107 +1,93 @@
-"""Step 2: DFT geometry optimization of one molecule with PySCF + geomeTRIC.
+"""Step 2: DFT geometry optimisation (PySCF + geomeTRIC) for selected molecules.
 
 Usage (from repo root):
-    python molecules/02_optimize.py molecules/xyz/benzene.xyz
-    python molecules/02_optimize.py molecules/xyz/eosin_Y.xyz --basis def2-svp --xc b3lyp --disp d3bj --solvent water
+    python molecules/02_optimize.py benzophenone anthraquinone thioxanthone
+    python molecules/02_optimize.py eosinY --xc b3lyp --basis def2-svp --solvent water --threads 10
+    python molecules/02_optimize.py riboflavin --criteria flat          # flexible molecules, see --help
+    python molecules/02_optimize.py eosinY --criteria flat --start partial_last_frame.xyz
 
-Charge is read from the xyz comment line ("charge=-2"), written by 01_represent.py.
-Outputs in results/opt/<slug>/: <slug>_opt.xyz, summary.json (energy, HOMO/LUMO, timing).
-HOMO/LUMO here are at the optimization level; refine them in 03_frontier.py.
+Reads molecules/xyz/<slug>.xyz (MMFF geometry from step 1, charge in the comment line).
+Writes molecules/xyz_opt/<slug>.xyz and updates results/molecules/geomopt_summary.csv with
+cycles, energies and Kabsch-aligned RMSD vs the MMFF geometry.
+Default level: B3LYP/def2-SVP, density fitting, ddCOSMO water. D3 is off by default because
+pyscf-dispersion is broken in the photocat env (pass --disp d3bj where it works).
 """
 import argparse
-import json
-import re
+import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from utils.common import ROOT, read_xyz, write_xyz, build_mol, make_rks  # noqa: E402  (imports pyscf safely)
 import numpy as np
-from pyscf import dft, gto, lib
-from pyscf.geomopt.geometric_solver import optimize
+import pandas as pd
+from pyscf import lib
+from pyscf.geomopt import geometric_solver
 
-HARTREE_TO_EV = 27.211386
-ROOT = Path(__file__).resolve().parents[1]
-HEAVY_ECP = {"I", "Ru", "Ir", "W", "Rh", "Pd", "Pt", "Au", "Ag"}  # def2 ECP elements we may meet
-
-
-def read_xyz(path: Path) -> tuple[str, int, int]:
-    lines = path.read_text().splitlines()
-    n = int(lines[0])
-    comment = lines[1]
-    charge = int(m.group(1)) if (m := re.search(r"charge=(-?\d+)", comment)) else 0
-    spin = int(m.group(1)) if (m := re.search(r"spin=(\d+)", comment)) else 0
-    atoms = "\n".join(lines[2 : 2 + n])
-    return atoms, charge, spin
+BOHR = 0.52917721092
 
 
-def build_mol(atoms: str, charge: int, spin: int, basis: str) -> gto.Mole:
-    symbols = {line.split()[0] for line in atoms.splitlines()}
-    ecp = {el: basis for el in symbols & HEAVY_ECP}  # def2 ECPs share the basis name
-    return gto.M(atom=atoms, charge=charge, spin=spin, basis=basis, ecp=ecp or None, verbose=3)
+def kabsch_rmsd(P, Q, mask=None):
+    P = P - P.mean(0); Q = Q - Q.mean(0)
+    V, S, Wt = np.linalg.svd(P.T @ Q); d = np.sign(np.linalg.det(V @ Wt))
+    D = np.sqrt(((P @ (V @ np.diag([1, 1, d]) @ Wt) - Q) ** 2).sum(1))
+    if mask is not None: D = D[mask]
+    return float(np.sqrt((D ** 2).mean())), float(D.max())
 
 
-def make_mf(mol: gto.Mole, xc: str, disp: str | None, solvent: str | None):
-    mf = dft.RKS(mol) if mol.spin == 0 else dft.UKS(mol)
-    mf.xc = xc
-    if disp:
-        mf.disp = disp
-    if solvent:
-        mf = mf.PCM()
-        mf.with_solvent.method = "IEF-PCM"
-        mf.with_solvent.solvent = solvent
-    return mf
+ap = argparse.ArgumentParser()
+ap.add_argument("slugs", nargs="+")
+ap.add_argument("--xc", default="b3lyp"); ap.add_argument("--basis", default="def2-svp")
+ap.add_argument("--solvent", default="water", choices=["water", "none"])
+ap.add_argument("--disp", default=None); ap.add_argument("--maxsteps", type=int, default=60)
+ap.add_argument("--threads", type=int, default=8)
+ap.add_argument("--criteria", default="gau", choices=["gau", "flat"],
+                help="gau: dE 1e-6 Ha, grad rms/max 3e-4/4.5e-4, disp rms/max 1.2e-3/1.8e-3 (geomeTRIC default). "
+                     "flat: same gradient thresholds, dE 1e-5 Ha, no displacement thresholds - for molecules with very "
+                     "flat torsions (benzoate twist, ribityl chain) where the gau displacement test never settles.")
+ap.add_argument("--start", default=None,
+                help="xyz to start from (e.g. the last frame of an interrupted run); charge is taken from the MMFF xyz. "
+                     "Single slug only. RMSD is always measured against the MMFF geometry.")
+a = ap.parse_args()
+if a.start and len(a.slugs) != 1:
+    sys.exit("--start works with one slug at a time")
+CRIT = {"gau": dict(convergence_energy=1e-6, convergence_grms=3e-4, convergence_gmax=4.5e-4,
+                    convergence_drms=1.2e-3, convergence_dmax=1.8e-3),
+        "flat": dict(convergence_energy=1e-5, convergence_grms=3e-4, convergence_gmax=4.5e-4,
+                     convergence_drms=1.0, convergence_dmax=1.0)}[a.criteria]
+lib.num_threads(a.threads)
+(ROOT / "molecules/xyz_opt").mkdir(parents=True, exist_ok=True)
+out_csv = ROOT / "results/molecules/geomopt_summary.csv"
+old = pd.read_csv(out_csv) if out_csv.exists() else pd.DataFrame()
 
-
-def frontier(mf) -> tuple[float, float]:
-    e, occ = np.asarray(mf.mo_energy), np.asarray(mf.mo_occ)
-    if e.ndim == 2:  # unrestricted: take alpha channel
-        e, occ = e[0], occ[0]
-    return float(e[occ > 0].max() * HARTREE_TO_EV), float(e[occ == 0].min() * HARTREE_TO_EV)
-
-
-def main() -> None:
-    p = argparse.ArgumentParser()
-    p.add_argument("xyz", type=Path)
-    p.add_argument("--basis", default="def2-svp")
-    p.add_argument("--xc", default="b3lyp")
-    p.add_argument("--disp", default="d3bj", help="'none' to switch off")
-    p.add_argument("--solvent", default=None, help="e.g. water, acetonitrile")
-    p.add_argument("--maxsteps", type=int, default=100)
-    a = p.parse_args()
-    disp = None if a.disp == "none" else a.disp
-
-    slug = a.xyz.stem
-    out = ROOT / "results" / "opt" / slug
-    out.mkdir(parents=True, exist_ok=True)
-    atoms, charge, spin = read_xyz(a.xyz)
-    mol = build_mol(atoms, charge, spin, a.basis)
-    mol.output = str(out / "pyscf.log")
-    mol.build()
-
+for slug in a.slugs:
     t0 = time.time()
-    mf = make_mf(mol, a.xc, disp, a.solvent)
-    conv_params = {"convergence_energy": 1e-6, "convergence_grms": 3e-4, "convergence_gmax": 4.5e-4,
-                   "convergence_drms": 1.2e-3, "convergence_dmax": 1.8e-3}
-    mol_opt = optimize(mf, maxsteps=a.maxsteps, **conv_params)
-    mf_final = make_mf(mol_opt, a.xc, disp, a.solvent)
-    e_tot = mf_final.kernel()
-    wall = time.time() - t0
-    homo, lumo = frontier(mf_final)
-
-    coords = mol_opt.atom_coords(unit="Angstrom")
-    xyz_lines = [str(mol_opt.natm), f"{slug} {a.xc}/{a.basis} disp={disp} solvent={a.solvent} "
-                 f"charge={charge} spin={spin} E={e_tot:.8f} Eh"]
-    xyz_lines += [f"{mol_opt.atom_symbol(i):<2} {x:14.8f} {y:14.8f} {z:14.8f}"
-                  for i, (x, y, z) in enumerate(coords)]
-    (out / f"{slug}_opt.xyz").write_text("\n".join(xyz_lines) + "\n")
-
-    summary = {"name": slug, "xc": a.xc, "basis": a.basis, "disp": disp, "solvent": a.solvent,
-               "charge": charge, "spin": spin, "n_atoms": mol_opt.natm, "n_ao": mol_opt.nao,
-               "converged": bool(mf_final.converged), "E_tot_Eh": e_tot,
-               "HOMO_eV": homo, "LUMO_eV": lumo, "gap_eV": lumo - homo,
-               "wall_s": round(wall, 1), "threads": lib.num_threads()}
-    (out / "summary.json").write_text(json.dumps(summary, indent=2))
-    print(json.dumps(summary, indent=2))
-
-
-if __name__ == "__main__":
-    main()
+    mmff_xyz = ROOT / f"molecules/xyz/{slug}.xyz"
+    syms, _, q = read_xyz(mmff_xyz)
+    mol0 = build_mol(mmff_xyz, basis=a.basis)                        # MMFF reference geometry
+    e0 = make_rks(mol0, a.xc, a.solvent, a.disp).kernel()
+    if a.start:
+        s_syms, s_xyz, _ = read_xyz(a.start)
+        assert s_syms == syms, "start geometry has a different atom order"
+        mol = mol0.copy(); mol.set_geom_(np.array(s_xyz), unit="Angstrom")
+    else:
+        mol = mol0
+    mf = make_rks(mol, a.xc, a.solvent, a.disp)
+    ncyc = {"n": 0}
+    conv, mol_eq = geometric_solver.kernel(mf, maxsteps=a.maxsteps, assert_convergence=False,
+                                           callback=lambda env: ncyc.__setitem__("n", ncyc["n"] + 1), **CRIT)
+    mf2 = make_rks(mol_eq, a.xc, a.solvent, a.disp); e1 = mf2.kernel()
+    c0, c1 = mol0.atom_coords() * BOHR, mol_eq.atom_coords() * BOHR
+    heavy = np.array([s != "H" for s in syms])
+    rmsd_all, maxdev = kabsch_rmsd(c0, c1); rmsd_heavy, _ = kabsch_rmsd(c0, c1, heavy)
+    level = f"{a.xc.upper()}{'-'+a.disp.upper() if a.disp else ''}/{a.basis} {'ddCOSMO(water)' if a.solvent=='water' else 'gas'}"
+    write_xyz(ROOT / f"molecules/xyz_opt/{slug}.xyz", syms, c1,
+              f"{slug} | charge={q} mult=1 | {level} optimized ({a.criteria} criteria, converged={conv}) | E={e1:.8f} Ha")
+    row = dict(slug=slug, level=level, criteria=a.criteria, converged=bool(conv),
+               started_from=("MMFF" if not a.start else Path(a.start).name), nao=mol.nao, n_opt_cycles=ncyc["n"],
+               E_mmff_geom_Ha=round(e0, 6), E_opt_Ha=round(e1, 6), dE_kcal=round((e1 - e0) * 627.5095, 2),
+               wall_s=round(time.time() - t0, 1),
+               rmsd_all_A=round(rmsd_all, 4), rmsd_heavy_A=round(rmsd_heavy, 4), max_dev_A=round(maxdev, 4))
+    print(row, flush=True)
+    old = pd.concat([old[old.slug != slug] if len(old) else old, pd.DataFrame([row])], ignore_index=True)
+    old.to_csv(out_csv, index=False)

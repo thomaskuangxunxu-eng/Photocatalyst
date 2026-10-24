@@ -1,0 +1,7 @@
+slug,level,nao,n_opt_cycles,E_mmff_geom_Ha,E_opt_Ha,dE_kcal,wall_s,rmsd_all_A,rmsd_heavy_A,max_dev_A,criteria,converged,started_from
+benzophenone,B3LYP/def2-svp ddCOSMO(water),246,11,-576.223879,-576.225899,-1.27,256.3,0.1402,0.0956,0.2625,gau,True,MMFF
+anthraquinone,B3LYP/def2-svp ddCOSMO(water),264,15,-688.288089,-688.29035,-1.42,391.6,0.0188,0.0192,0.0367,gau,True,MMFF
+thioxanthone,B3LYP/def2-svp ddCOSMO(water),254,10,-973.116155,-973.119144,-1.88,236.9,0.0328,0.0295,0.0618,gau,True,MMFF
+eosinY,B3LYP/def2-svp ddCOSMO(water),508,31,-11436.768992,-11436.797249,-17.73,710.9,0.3108,0.3163,1.2972,flat,True,MMFF; 27 gau steps (gradient met; displacement test never settled) then 4 flat steps; wall_s is the 4-step resume only
+riboflavin,B3LYP/def2-svp ddCOSMO(water),478,18,-1329.273818,-1329.291556,-11.13,5546.7,0.2231,0.1732,0.6507,flat,True,MMFF
+rhodamineB,B3LYP/def2-svp ddCOSMO(water),617,20,-1419.674834,-1419.707078,-20.23,68073.4,0.4322,0.3983,1.2664,flat,True,MMFF
