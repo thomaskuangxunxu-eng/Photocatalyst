@@ -21,7 +21,8 @@ ap = argparse.ArgumentParser(); ap.add_argument("--threads", type=int, default=1
 a = ap.parse_args(); lib.num_threads(a.threads)
 
 fo = pd.read_csv(ROOT / "results/molecules/frontier_orbitals.csv").set_index("slug")
-gs = pd.read_csv(ROOT / "results/molecules/geomopt_summary.csv").set_index("slug")
+gs = pd.read_csv(ROOT / "results/molecules/geomopt_summary.csv")
+gs = gs[~gs.level.str.contains(r"-D[34]", regex=True)].set_index("slug")   # xyz_opt/ holds the no-dispersion level
 rows = []
 for xyz in sorted((ROOT / "molecules/xyz_opt").glob("*.xyz")):
     slug = xyz.stem

@@ -7,10 +7,13 @@ Usage (from repo root):
     python molecules/02_optimize.py eosinY --criteria flat --start partial_last_frame.xyz
 
 Reads molecules/xyz/<slug>.xyz (MMFF geometry from step 1, charge in the comment line).
-Writes molecules/xyz_opt/<slug>.xyz and updates results/molecules/geomopt_summary.csv with
-cycles, energies and Kabsch-aligned RMSD vs the MMFF geometry.
-Default level: B3LYP/def2-SVP, density fitting, ddCOSMO water. D3 is off by default because
-pyscf-dispersion is broken in the photocat env (pass --disp d3bj where it works).
+Writes molecules/xyz_opt/<slug>.xyz (or molecules/xyz_opt_<disp>/<slug>.xyz with --disp) and updates
+results/molecules/geomopt_summary.csv (one row per slug and level) with cycles, energies and
+Kabsch-aligned RMSD vs the MMFF geometry.
+Default level: B3LYP/def2-SVP, density fitting, ddCOSMO water, no dispersion (this is the level of the
+stored results). Add dispersion with --disp d3bj (or d3zero, d4); the D3/D4 backend is
+utils/dispersion_shim.py on top of conda-forge dftd3-python / dftd4-python.
+    python molecules/02_optimize.py benzophenone --disp d3bj
 """
 import argparse
 import sys
@@ -56,7 +59,8 @@ CRIT = {"gau": dict(convergence_energy=1e-6, convergence_grms=3e-4, convergence_
         "flat": dict(convergence_energy=1e-5, convergence_grms=3e-4, convergence_gmax=4.5e-4,
                      convergence_drms=1.0, convergence_dmax=1.0)}[a.criteria]
 lib.num_threads(a.threads)
-(ROOT / "molecules/xyz_opt").mkdir(parents=True, exist_ok=True)
+OPT_DIR = ROOT / ("molecules/xyz_opt" if not a.disp else f"molecules/xyz_opt_{a.disp.lower()}")
+OPT_DIR.mkdir(parents=True, exist_ok=True)
 out_csv = ROOT / "results/molecules/geomopt_summary.csv"
 old = pd.read_csv(out_csv) if out_csv.exists() else pd.DataFrame()
 
@@ -81,7 +85,7 @@ for slug in a.slugs:
     heavy = np.array([s != "H" for s in syms])
     rmsd_all, maxdev = kabsch_rmsd(c0, c1); rmsd_heavy, _ = kabsch_rmsd(c0, c1, heavy)
     level = f"{a.xc.upper()}{'-'+a.disp.upper() if a.disp else ''}/{a.basis} {'ddCOSMO(water)' if a.solvent=='water' else 'gas'}"
-    write_xyz(ROOT / f"molecules/xyz_opt/{slug}.xyz", syms, c1,
+    write_xyz(OPT_DIR / f"{slug}.xyz", syms, c1,
               f"{slug} | charge={q} mult=1 | {level} optimized ({a.criteria} criteria, converged={conv}) | E={e1:.8f} Ha")
     row = dict(slug=slug, level=level, criteria=a.criteria, converged=bool(conv),
                started_from=("MMFF" if not a.start else Path(a.start).name), nao=mol.nao, n_opt_cycles=ncyc["n"],
@@ -89,5 +93,6 @@ for slug in a.slugs:
                wall_s=round(time.time() - t0, 1),
                rmsd_all_A=round(rmsd_all, 4), rmsd_heavy_A=round(rmsd_heavy, 4), max_dev_A=round(maxdev, 4))
     print(row, flush=True)
-    old = pd.concat([old[old.slug != slug] if len(old) else old, pd.DataFrame([row])], ignore_index=True)
+    keep = old[~((old.slug == slug) & (old.level == level))] if len(old) else old
+    old = pd.concat([keep, pd.DataFrame([row])], ignore_index=True)
     old.to_csv(out_csv, index=False)

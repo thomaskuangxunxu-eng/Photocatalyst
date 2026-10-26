@@ -1,37 +1,33 @@
 \documentclass[11pt,a4paper]{article}
 \usepackage[margin=2.2cm]{geometry}
-\usepackage{graphicx,booktabs,amsmath,siunitx,xcolor,tabularx,enumitem,array}
+\usepackage{graphicx,booktabs,amsmath,siunitx,tabularx,enumitem,array}
 \usepackage[version=4]{mhchem}
-\usepackage[most]{tcolorbox}
 \usepackage[hidelinks]{hyperref}
 \graphicspath{{figures/}}
 \setlist{itemsep=2pt,topsep=4pt}
 \sisetup{detect-all}
+% plain run-in heading for concept / finding / caveat paragraphs
+\newcommand{\notehead}[2]{\par\smallskip\noindent\textbf{#1: #2.}\enspace}
 
-\newtcolorbox{learn}{colback=blue!4,colframe=blue!50!black,boxrule=0.6pt,arc=2pt,
-  left=6pt,right=6pt,top=4pt,bottom=4pt,fonttitle=\bfseries,title=Concept to master}
-\newtcolorbox{finding}{colback=green!5,colframe=green!40!black,boxrule=0.6pt,arc=2pt,
-  left=6pt,right=6pt,top=4pt,bottom=4pt,fonttitle=\bfseries,title=Key finding}
-\newtcolorbox{caveat}{colback=red!4,colframe=red!55!black,boxrule=0.6pt,arc=2pt,
-  left=6pt,right=6pt,top=4pt,bottom=4pt,fonttitle=\bfseries,title=Caveat / open issue}
 
 \title{\textbf{photocatalyst-dft: where the project stands}\\[4pt]
 \large A walkthrough of the Claude Science work, with the concepts behind each step}
 \author{Prepared for Lindejiade}
-\date{24 October 2026 --- based on the repository state on this date}
+\date{26 October 2026 --- based on the repository state on this date (updated from the 24 October version)}
 
 \begin{document}
 \maketitle
 
-\noindent\textbf{Status in one paragraph.} The molecular half of the project is built and mostly
-validated. Sixteen organic photocatalysts are catalogued, cross-checked against PubChem, embedded
-in 3D and given B3LYP/def2-SVP frontier orbitals in implicit water. Six molecules have full DFT
-geometry optimisations. The three most recent (eosin~Y$^{2-}$, riboflavin, rhodamine~B$^+$) showed
-that the MMFF force-field geometries are \emph{not} close to DFT for flexible or charged dyes
-(heavy-atom RMSD 0.17--0.40~\AA, versus $\le$0.03~\AA\ for rigid molecules). A new step-5 script
-was written to test whether this matters for the orbital energies, but it cannot run yet, because
-step~3 has not been rerun on the new geometries. TDDFT and all solid-state work (Week~2) have not
-started.
+\noindent\textbf{Status in one paragraph.} The organic half of the project is built, verified and
+documented. Sixteen organic photocatalysts are catalogued, cross-checked against PubChem, embedded in
+3D and given B3LYP/def2-SVP frontier orbitals in implicit water. Six of them have full DFT geometry
+optimisations. Step~5 is now complete. It shows that MMFF geometries are adequate for rigid dyes
+($|\Delta\text{gap}| \le 0.03$~eV) but not for flexible or charged ones (up to
+0.15~eV, eosin~Y$^{2-}$). That is about a third of the 0.46~eV scatter of the
+gap against experiment ($r = 0.89$). The dispersion problem is solved: D3/D4 now runs on the Mac
+through a small adapter. For two rigid test molecules, adding D3(BJ) changes the gap by at most
+0.006~eV. Next are DFT geometries for the remaining 10 dyes and TDDFT. This summary
+covers the organic part only.
 
 \tableofcontents
 
@@ -54,17 +50,28 @@ Step & Script & What it does $\to$ main output \\
   for all 16, \texttt{frontier\_orbitals.csv}, energy-level diagram \\
 4 & \texttt{04\_orbitals.py} & Orbital cube files + fragment localisation (Mulliken) $\to$
   \texttt{orbital\_localization.csv}, isosurface figure \\
-5 & \texttt{05\_geometry\_check.py} & \textbf{New.} Does the geometry (MMFF vs DFT) change the
-  orbital energies? $\to$ \texttt{geometry\_sensitivity.csv} (\emph{not yet produced}) \\
+5 & \texttt{05\_geometry\_check.py} & Does the geometry (MMFF vs DFT) change the
+  orbital energies? $\to$ \texttt{geometry\_sensitivity.csv} (6 molecules) \\
 \midrule
 --- & \texttt{utils/common.py} & Shared code: xyz read/write, building the PySCF molecule, the DFT
   settings, constants, plotting style \\
+--- & \texttt{utils/\allowbreak dispersion\_\allowbreak shim.py} & \textbf{New.} D3/D4 dispersion backend for PySCF on
+  Apple Silicon (Section~\ref{sec:infra}) \\
 \bottomrule
 \end{tabularx}
 \end{center}
 
 \noindent The level of theory is the same everywhere: \textbf{B3LYP/def2-SVP, density fitting,
-ddCOSMO water ($\varepsilon = 78.36$), restricted closed shell, no dispersion correction.}
+ddCOSMO water ($\varepsilon = 78.36$), restricted closed shell, no dispersion correction.} D3/D4 is now
+available (\texttt{--disp d3bj}). The stored results are still without it, and Section~\ref{sec:d3}
+shows why that changes little for rigid molecules.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.92\linewidth]{organic_architecture.pdf}
+\caption{Code architecture and development plan (organic part). Green: implemented and verified by
+rerunning. Grey: proposed next steps, in order.}
+\end{figure}
 
 %=============================================================================
 \section{Step 1 --- Catalogue and molecular representation}
@@ -91,13 +98,13 @@ match a PubChem record exactly. For the other 7, \texttt{pubchem\_parent\_cid} p
   \item Me-PDI: no PubChem record; built from the parent PTCDA (CID 67191).
 \end{itemize}
 
-\begin{learn}
-\textbf{Compute the species that does the chemistry.} In water at working pH, eosin~Y is a
+\notehead{Concept}{Compute the species that does the chemistry}
+In water at working pH, eosin~Y is a
 dianion, and its colour and redox potentials belong to that dianion. The InChIKey records this
 in its last letter: neutral eosin~Y ends in \texttt{-N}, the dianion in \texttt{-L} (two protons
 removed). The first 14 characters, which encode the skeleton, are identical. That is why a
 salt or ion can be traced back to its parent record in PubChem.
-\end{learn}
+\par\smallskip
 
 \subsection{Checks before any 3D work}
 For each row the script parses the SMILES (RDKit returns \texttt{None} on a syntax error; the
@@ -105,12 +112,12 @@ molecule is then skipped). It then computes formula, total charge and InChIKey f
 structure and compares each with the stored value. Mismatches go into a \texttt{problems} list
 instead of stopping the run, so all errors are reported at once.
 
-\begin{caveat}
+\notehead{Caveat}{What the InChIKey check can and cannot catch}
 The formula and charge checks catch real typos. For example, dropping one \texttt{(Br)} from the
 eosin~Y SMILES still gives a valid SMILES, but the formula becomes \ce{C20H7Br3O5^{2-}}. The
 InChIKey check, however, can only catch \emph{later edits}, because the stored key was itself
 generated from the same SMILES. The independent check is the PubChem comparison above.
-\end{caveat}
+\par\smallskip
 
 \subsection{Multi-conformer 3D embedding}
 \begin{enumerate}
@@ -136,12 +143,12 @@ riboflavin & 9 & 30 & 18 \\
 \end{tabular}
 \end{center}
 
-\begin{learn}
+\notehead{Concept}{Conformer count as a measure of flexibility}
 The number of surviving conformers measures flexibility. A rigid molecule collapses to one
 structure however many times you embed it. Riboflavin's ribityl chain gives 18 distinct shapes
 spread over 14~kcal/mol in MMFF energy. The two eosin~Y conformers have the benzoate ring twisted
 one way or the other, which is why they are exactly degenerate.
-\end{learn}
+\par\smallskip
 
 \begin{figure}[h]
 \centering
@@ -165,14 +172,14 @@ one way or the other, which is why they are exactly degenerate.
   \textbf{Kabsch-aligned RMSD}.
 \end{enumerate}
 
-\begin{learn}
-\textbf{Kabsch alignment.} Two copies of the same molecule can differ simply by being rotated or
+\notehead{Concept}{Kabsch alignment}
+Two copies of the same molecule can differ simply by being rotated or
 shifted. Kabsch's algorithm first centres both copies, then finds the rotation that best
 superimposes them (via a singular value decomposition of $P^\mathsf{T}Q$). Only then does it
 measure the per-atom distances. Without it, an RMSD would mix real structural change with an
 arbitrary orientation. The script reports RMSD over all atoms, over heavy atoms only, and the
 single largest atomic displacement.
-\end{learn}
+\par\smallskip
 
 \subsection{Convergence criteria: \texttt{gau} vs \texttt{flat}}
 An optimisation stops when \emph{all} of its tests pass. The default (\texttt{gau},
@@ -196,13 +203,13 @@ at almost no cost in energy. The run was therefore resumed from its last frame w
 \texttt{--criteria flat}, which keeps the same gradient thresholds but drops the displacement
 test. It converged in 4 more steps. Riboflavin and rhodamine~B used \texttt{flat} from the start.
 
-\begin{learn}
-\textbf{Flat potential energy surfaces.} The gradient tells you the surface is level; the
+\notehead{Concept}{Flat potential energy surfaces}
+The gradient tells you the surface is level; the
 displacement tells you the optimiser has stopped moving. On a very flat torsional surface the
 gradient can be small while the atoms still wander. Relaxing the displacement test is
 reasonable \emph{because} the gradient test still holds. The structure is a true stationary
 point, but the exact torsion angle is poorly determined. Report it with that caveat.
-\end{learn}
+\par\smallskip
 
 \subsection{Results}
 \begin{center}\small
@@ -221,14 +228,16 @@ rhodamine B$^+$ & 617 & 20 & $-20.23$ & 0.398 & 1.27 & flat \\
 \end{tabular}
 \end{center}
 \noindent $\Delta E = E(\text{DFT-optimised}) - E(\text{MMFF geometry})$, both at the same DFT
-level. Wall times: rhodamine~B 68\,073~s ($\approx$19~h), riboflavin 5\,547~s ($\approx$1.5~h);
-eosin~Y's recorded 711~s covers only the 4-step resume.
+level. Recorded wall times: rhodamine~B 68\,073~s ($\approx$19~h), riboflavin 5\,547~s ($\approx$1.5~h);
+eosin~Y's recorded 711~s covers only the 4-step resume. The rhodamine~B figure is elapsed time and
+includes about 15.5~h during which the laptop was asleep; the optimisation itself needs about 2~h
+(Section~\ref{sec:timing}).
 
-\begin{finding}
+\notehead{Key finding}{MMFF geometries are not adequate for every dye}
 The earlier conclusion ``MMFF is good enough, so skip DFT for the other 13'' does not hold. It
 was based on three rigid molecules. The flexible and charged dyes moved roughly 6--13 times more than the rigid
 ones (heavy-atom RMSD 0.17--0.40 vs 0.02--0.03~\AA) and dropped 11--20~kcal/mol in energy.
-\end{finding}
+\par\smallskip
 
 \paragraph{What actually moved.} I aligned each MMFF and DFT pair and listed the atoms that moved
 most:
@@ -244,8 +253,35 @@ So the large RMSDs come mainly from the \textbf{carboxyl groups and side chains 
 from the chromophore cores. A likely reason is that MMFF minimised these ions without any solvent,
 while the DFT run used ddCOSMO water. A bare \ce{-COO-} group in vacuum and a solvated one prefer
 different orientations. Because the HOMO and LUMO of these dyes sit on the cores, the orbital
-energies may change much less than the RMSD suggests. Step~5 exists to test exactly this
-(Section~6).
+energies may change much less than the RMSD suggests. Step~5 tested this (Section~\ref{sec:step5}).
+The gap moves by up to 0.15~eV: smaller than the RMSD might suggest, but not negligible.
+
+\subsection{Dispersion check: does D3(BJ) change the geometries?}\label{sec:d3}
+With dispersion working (Section~\ref{sec:infra}), benzophenone and thioxanthone were re-optimised at
+B3LYP-D3(BJ)/def2-SVP, ddCOSMO water (11 and
+10 cycles, both converged). The D3 geometries are kept
+separately in \texttt{molecules/xyz\_opt\_d3bj/}. Each molecule's orbitals were then computed on both
+geometries ($\Delta$ = D3 geometry $-$ no-D3 geometry):
+
+\begin{center}\small
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+Molecule & RMSD$_\text{heavy}$ (\AA) & Max dev.\ (\AA) & $\Delta$HOMO (eV) & $\Delta$LUMO (eV) & $\Delta$gap (eV) \\
+\midrule
+benzophenone & 0.022 & 0.040 & ${+}0.000$ & ${+}0.006$ & ${+}0.006$ \\
+thioxanthone & 0.004 & 0.006 & ${+}0.003$ & ${+}0.004$ & ${+}0.002$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\notehead{Concept}{D3 never touches the orbitals directly}
+DFT-D3 is an energy and gradient term added
+\emph{after} the SCF; it does not enter the Kohn--Sham equations. At a fixed geometry the HOMO and LUMO
+are therefore identical with and without D3 (checked: equal to $10^{-6}$~eV). D3 can only change orbital
+energies by changing the geometry. For rigid aromatics that effect is a few meV. The flexible dyes,
+where intramolecular dispersion between rings and side chains matters, have not yet been re-optimised
+with D3.
+\par\smallskip
 
 \begin{figure}[h]
 \centering
@@ -265,7 +301,7 @@ fails to converge, the script retries with a second-order (Newton) solver. All 1
 \centering
 \includegraphics[width=\linewidth]{homo_lumo_diagram.png}
 \caption{Current diagram. Compared with the first version, the H$^+$/H$_2$ and O$_2$/H$_2$O lines
-were removed, the axis now says ``not a redox potential'', and $\dagger$ marks the 13 molecules
+were removed, the axis now says ``not a redox potential'', and $\dagger$ marks the 10 molecules
 still on MMFF geometry.}
 \end{figure}
 
@@ -278,34 +314,32 @@ TPP & $-5.12$ & $-3.43$ & 1.70 & 1.92 & MMFF \\
 Me-PDI & $-5.81$ & $-3.53$ & 2.29 & 2.36 & MMFF \\
 MB$^+$ & $-5.87$ & $-3.45$ & 2.43 & 1.87 & MMFF \\
 RB$^{2-}$ & $-5.14$ & $-2.43$ & 2.71 & 2.26 & MMFF \\
-RhB$^+$ & $-5.71$ & $-2.94$ & 2.76 & 2.24 & MMFF$^\ast$ \\
 DCA & $-6.07$ & $-3.31$ & 2.77 & 2.95 & MMFF \\
-EY$^{2-}$ & $-5.02$ & $-2.22$ & 2.81 & 2.30 & MMFF$^\ast$ \\
+RhB$^+$ & $-5.78$ & $-2.95$ & 2.83 & 2.24 & DFT \\
 FL$^{2-}$ & $-4.62$ & $-1.75$ & 2.87 & 2.53 & MMFF \\
+EY$^{2-}$ & $-5.03$ & $-2.07$ & 2.95 & 2.30 & DFT \\
 4CzIPN & $-5.85$ & $-2.78$ & 3.07 & 2.85 & MMFF \\
 Mes-Acr$^+$ & $-6.79$ & $-3.62$ & 3.17 & 2.88 & MMFF \\
-RF & $-6.38$ & $-2.96$ & 3.43 & 2.79 & MMFF$^\ast$ \\
+RF & $-6.32$ & $-2.94$ & 3.37 & 2.79 & DFT \\
 BZ & $-6.92$ & $-3.08$ & 3.85 & 3.35 & MMFF \\
 TX & $-6.12$ & $-2.15$ & 3.97 & 3.26 & DFT \\
 PTH & $-4.99$ & $-0.89$ & 4.10 & 3.92 & MMFF \\
-AQ & $-7.31$ & $-3.04$ & 4.27 & 3.82 & DFT \\
+AQ & $-7.31$ & $-3.04$ & 4.27 & 3.81 & DFT \\
 BP & $-7.00$ & $-2.03$ & 4.96 & 3.59 & DFT \\
 \bottomrule
 \end{tabular}
 
-\smallskip
-{\footnotesize $^\ast$ a DFT geometry now exists, but step~3 has not been rerun on it.}
 \end{center}
 
-\begin{finding}
-The Kohn--Sham gap tracks the lowest experimental absorption band ($r=0.90$, MAE 0.45~eV,
-$n=16$), and is larger than it for 13 of the 16. The largest outlier is benzophenone
+\notehead{Key finding}{Agreement with experiment}
+The Kohn--Sham gap tracks the lowest experimental absorption band ($r=0.89$, MAE 0.46~eV,
+$n=16$), and is larger than it for 13 of the 16. (Before eosin~Y, riboflavin and
+rhodamine~B were moved onto their DFT geometries, these were $r=0.90$ and MAE 0.45~eV.) The largest outlier is benzophenone
 (+1.37~eV), whose weak lowest band is n$\to\pi^*$. TPP is compared against its Q$_x$(0,0) band
 (647~nm), not the Soret band, which is S$_2$.
-\end{finding}
+\par\smallskip
 
-\begin{learn}
-\textbf{Three gaps that are not the same thing.}
+\notehead{Concept}{Three gaps that are not the same thing}
 \begin{itemize}[leftmargin=*]
   \item \emph{KS HOMO--LUMO gap}: a difference of orbital energies from one ground-state
   calculation.
@@ -316,7 +350,7 @@ $n=16$), and is larger than it for 13 of the 16. The largest outlier is benzophe
 \end{itemize}
 A good correlation with absorption says the \emph{trend} is captured, not that the absolute values
 mean anything. This is why the redox lines were removed from the diagram.
-\end{learn}
+\par\smallskip
 
 %=============================================================================
 \section{Step 4 --- Where the orbitals live}
@@ -336,9 +370,9 @@ all atoms this gives exactly 1.
 \toprule
 Molecule & Orbital & $E$ (eV) & Localisation \\
 \midrule
-eosin Y$^{2-}$ & HOMO & $-5.02$ & 91\% xanthene core \\
- & LUMO & $-2.22$ & 97\% xanthene core \\
- & HOMO$-1$, HOMO$-2$ & $-5.34$, $-5.83$ & 88\%, 84\% benzoate \\
+eosin Y$^{2-}$ & HOMO & $-5.03$ & 98\% xanthene core \\
+ & LUMO & $-2.08$ & 96\% xanthene core \\
+ & HOMO$-1$, HOMO$-2$ & $-5.54$, $-5.88$ & 79\%, 50\% benzoate \\
 Mes-Acr$^+$ & HOMO$-2$ & $-6.80$ & $>$99\% mesityl \\
  & HOMO$-1$ & $-6.79$ & 96\% mesityl \\
  & HOMO & $-6.79$ & 99\% acridinium \\
@@ -354,59 +388,77 @@ Mes-Acr$^+$ & HOMO$-2$ & $-6.80$ & $>$99\% mesityl \\
 matplotlib only approximates which surface is in front).}
 \end{figure}
 
-\begin{finding}
+\notehead{Key finding}{Local versus charge-transfer excitations}
 Eosin~Y's lowest excitation is \emph{local} ($\pi\to\pi^*$ on the xanthene). In Mes-Acr$^+$,
 donor (mesityl) and acceptor (acridinium) orbitals sit on two orthogonal rings, which gives
 \emph{charge-transfer} character. This is the orbital-level picture of the 3D twist in
 Section~2.3. The top three occupied orbitals of Mes-Acr$^+$ lie within 13~meV of each other, so
 which one is labelled ``HOMO'' is not meaningful at this level of theory.
-\end{finding}
+\par\smallskip
 
-\begin{caveat}
+\notehead{Caveat}{How to read the orbital percentages}
 Mulliken populations depend on the basis set. Use them for qualitative statements (91\% vs 10\%),
-not for small differences. The eosin~Y orbitals in this step were computed on the MMFF geometry,
-before its DFT optimisation existed.
-\end{caveat}
+not for small differences. The eosin~Y values are now on its DFT geometry. On the MMFF geometry
+the HOMO was 91\% and the LUMO 97\% on the core: the benzoate ring twists further out of conjugation
+after optimisation, so the HOMO becomes more core-centred. The conclusion ($\pi\to\pi^*$ on the
+xanthene) is unchanged.
+\par\smallskip
 
 %=============================================================================
-\section{Step 5 --- Does the geometry matter for the orbitals? (new, not yet run)}
+\section{Step 5 --- Does the geometry matter for the orbitals?}\label{sec:step5}
 
 \texttt{05\_geometry\_check.py} answers the question raised by Section~3.3. For every molecule
 with a DFT geometry, it reruns the step-3 single point on the \emph{MMFF} geometry and compares
-it with the step-3 result on the \emph{DFT} geometry. It writes the shifts
-$\Delta$HOMO, $\Delta$LUMO and $\Delta$gap (DFT minus MMFF) next to the RMSD and $\Delta E$ for each
-molecule.
+it with the step-3 result on the \emph{DFT} geometry ($\Delta$ = DFT $-$ MMFF). Step~3 was first rerun for
+eosin~Y, riboflavin and rhodamine~B on their DFT geometries, which removed the blocker noted in the
+previous version.
 
-\begin{caveat}
-\textbf{It cannot produce useful output yet.} The script deliberately skips any molecule whose
-step-3 entry was not computed on the DFT geometry (\texttt{geom\_source != "xyz\_opt"}). That is
-currently true for eosin~Y, riboflavin and rhodamine~B: \texttt{frontier\_orbitals.csv} was last
-written on 18 Oct at 14:33, before any of their optimisations finished. The order to run is:
-\begin{verbatim}
-python molecules/03_frontier.py --only eosinY riboflavin rhodamineB
-python molecules/05_geometry_check.py
-\end{verbatim}
-The three rigid molecules will then show the baseline (expected to be near zero). The three
-flexible ones will show whether rotating the carboxyl groups and side chains moves the frontier
-orbitals.
-\end{caveat}
+\begin{center}\small
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+PC & RMSD$_\text{heavy}$ (\AA) & $\Delta E_\text{opt}$ (kcal/mol) & $\Delta$HOMO (eV) & $\Delta$LUMO (eV) & $\Delta$gap (eV) \\
+\midrule
+AQ & 0.019 & $-1.4$ & $-0.026$ & $-0.020$ & ${+}0.006$ \\
+TX & 0.029 & $-1.9$ & ${+}0.024$ & $-0.002$ & $-0.027$ \\
+BP & 0.096 & $-1.3$ & $-0.089$ & $-0.087$ & ${+}0.001$ \\
+RF & 0.173 & $-11.1$ & ${+}0.066$ & ${+}0.014$ & $-0.052$ \\
+EY$^{2-}$ & 0.316 & $-17.7$ & $-0.005$ & ${+}0.143$ & ${+}0.149$ \\
+RhB$^+$ & 0.398 & $-20.2$ & $-0.069$ & $-0.003$ & ${+}0.065$ \\
+\bottomrule
+\end{tabular}
+\end{center}
 
-\noindent\textbf{How to read the answer.} If $|\Delta\text{gap}|$ is small compared with the
-0.45~eV MAE against experiment, MMFF geometries are adequate \emph{for this property}, and the
-remaining 10 molecules need not be optimised. If it is comparable, every molecule needs DFT
-geometries before the orbital table can be trusted.
+\notehead{Key finding}{How much the gap depends on the geometry}
+For rigid molecules the gap is insensitive to the geometry ($|\Delta\text{gap}| \le 0.03$~eV), although
+benzophenone's individual orbitals shift by about 0.09~eV. For the flexible and charged dyes the gap shifts
+by up to $+0.15$~eV (eosin~Y$^{2-}$, almost all from its LUMO). That is about a third of the
+0.46~eV scatter against experiment. MMFF geometries are therefore good enough for qualitative trends, but
+not for quantitative comparisons between dyes.
+\par\smallskip
+
+\notehead{Caveat}{Which dyes still need DFT geometries}
+10 molecules are still on MMFF geometries: DCA, BZ, PTH, RB$^{2-}$, FL$^{2-}$, MB$^+$, Mes-Acr$^+$, Me-PDI, TPP, 4CzIPN. Rose bengal and fluorescein share eosin~Y's
+benzoate--xanthene scaffold and probably carry a similar 0.1--0.15~eV gap error. They are first in line
+for DFT optimisation.
+\par\smallskip
 
 %=============================================================================
-\section{Infrastructure worth understanding}
+\section{Infrastructure worth understanding}\label{sec:infra}
 
 \begin{itemize}
-  \item \textbf{The dispersion workaround} (\texttt{utils/common.py}). On the Mac,
-  \texttt{pyscf-dispersion} fails to load its compiled library. Because PySCF tries to import
-  it, \texttt{import pyscf} itself crashed. The helper attempts the import, catches the
-  \texttt{TypeError}, deletes the half-loaded PySCF modules from \texttt{sys.modules}, registers
-  an empty placeholder module called \texttt{pyscf.dispersion}, and re-imports. PySCF then takes
-  its own ``no D3 available'' path, and everything except dispersion works. This is why every
-  script must import \texttt{utils.common} before \texttt{pyscf}, and why no result includes D3.
+  \item \textbf{Dispersion: the problem and the fix} (\texttt{utils/\allowbreak dispersion\_\allowbreak shim.py}).
+  The only release of the PySCF dispersion package (\texttt{pyscf-dispersion}, version 1.0.0) fails on
+  Apple Silicon for two separate reasons.
+  First, it calls NumPy's \texttt{load\_library()} without the required path argument, so
+  \texttt{import pyscf} crashed. Second, its compiled libraries are built for Intel (x86\_64), so an
+  arm64 Python cannot load them even when the path is right. The first workaround only switched D3 off.
+  The fix exploits the fact that \texttt{pyscf-dispersion} is a thin wrapper around Grimme's
+  \texttt{simple-dftd3} and \texttt{dftd4} libraries. The new module re-implements the two classes PySCF
+  calls, on top of the conda-forge builds of those same libraries (native arm64), and
+  \texttt{utils/common.py} installs it before PySCF is imported. Validated on water: the dispersion energy
+  is additive to $10^{-15}$~Ha, and the analytic D3 gradient matches finite differences to
+  $4\times10^{-13}$~Ha/bohr. A real geometry optimisation runs with it, including ddCOSMO and density
+  fitting.
   \item \textbf{Density fitting} (\texttt{.density\_fit()}) approximates the four-index electron
   repulsion integrals with an auxiliary basis. It is much faster at a very small accuracy cost,
   and is what made the 617-function rhodamine~B optimisation feasible.
@@ -418,7 +470,76 @@ geometries before the orbital table can be trusted.
 \end{itemize}
 
 %=============================================================================
-\section{Status board}
+\section{Problems encountered and how they were handled}
+
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{4.1cm}>{\raggedright\arraybackslash}X@{}}
+\toprule
+Problem & Resolution \\
+\midrule
+\texttt{pyscf-dispersion} unusable on the Mac (bad library call; x86\_64-only binaries) &
+  Replaced by an adapter on the conda-forge D3/D4 libraries; validated; D3 now available \\
+MMFF geometries justified with three rigid molecules only (review comment) &
+  Optimised three flexible/charged dyes and added step~5: gap error up to 0.15~eV, now stated in all outputs \\
+Orbital energies drawn against H$^+$/H$_2$ and O$_2$/H$_2$O levels (review comment) &
+  Lines removed; axis labelled ``not a redox potential''; $-\varepsilon-4.44$ columns renamed \texttt{*\_qualitative} \\
+Eosin~Y optimisation would not converge (displacement test on a flat torsion) &
+  \texttt{--criteria flat} (same gradient thresholds, no displacement test) and \texttt{--start} to resume \\
+Rhodamine~B optimisation recorded about 19~h of wall time &
+  Diagnosed (Section~\ref{sec:timing}): the laptop slept for about 15.5~h of it. One step costs 6~min, two thirds of it the solvent model. Long runs to be kept awake (\texttt{caffeinate}) or moved to a cluster \\
+PubChem stores salts or neutral forms, not the active ions &
+  Stored ions kept; \texttt{pubchem\_parent\_cid} + \texttt{pubchem\_cid\_relation} document the mapping \\
+Fragment pattern did not match eosin~Y, which silently gave empty localisation values &
+  Pattern fixed; the script now stops with an error instead of writing empty values \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{Where the compute time goes}\label{sec:timing}
+The rhodamine~B optimisation recorded 68\,073~s ($\approx$19~h) of elapsed time for 20 steps. To find
+out why, one optimisation step (SCF from scratch plus nuclear gradient, 10 threads) was rerun on the
+converged geometry, with and without the solvent model, and the macOS power log was checked for the
+period of the original run.
+
+\begin{center}\small
+\begin{tabular}{@{}lrr@{}}
+\toprule
+Rhodamine~B$^+$, 64 atoms, 617 basis functions & ddCOSMO water (s) & gas phase (s) \\
+\midrule
+SCF (12 and 13 cycles) & 156 & 71 \\
+Nuclear gradient & 196 & 44 \\
+\midrule
+One optimisation step & 352 & 115 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent In the solvated SCF, the density-fitted Coulomb/exchange build and the exchange--correlation
+integration each take about 2.4~s per cycle; most of the remaining time per cycle is the solvent.
+
+\notehead{Key finding}{Most of the 19 hours was the laptop asleep}
+The power log shows the Mac asleep for about 15.5~h of the 18.9~h window, interrupted only by
+minute-long maintenance wakes. At the measured cost of about 6~min per step, a 20-step optimisation
+needs about 2~h. Within a step, the ddCOSMO water model accounts for two thirds of the time (237 of
+352~s), mostly in the gradient.
+\par\smallskip
+
+\notehead{Concept}{Wall time and CPU time}
+Wall time is elapsed clock time: it keeps running while a machine sleeps or waits for other jobs.
+CPU time adds up the time spent on every core. PySCF logs both for each component; for the
+exchange--correlation step here, 13.7~s of CPU time took 2.3~s of wall time, so about six cores were
+busy on average. A wall time far above the sum of the logged component times means the job was not
+running, not that the chemistry is expensive.
+\par\smallskip
+
+\notehead{Caveat}{How firm these numbers are}
+The end of the original run is taken from when its result was first reported, so the sleep figure is
+approximate. The D3(BJ) thioxanthone re-optimisation (4\,146~s for 10 steps, against 254~s without
+D3) was probably affected the same way, but this was not checked.
+\par\smallskip
+
+%=============================================================================
+\section{Status board and plan}
 
 \begin{center}\small
 \begin{tabularx}{\linewidth}{@{}lX@{}}
@@ -427,25 +548,23 @@ geometries before the orbital table can be trusted.
 \midrule
 Catalogue & 16 organic photocatalysts, PubChem-checked, charge states documented \\
 3D structures & Multi-conformer MMFF94s geometries for all 16; HTML viewer \\
-DFT geometries & 6 of 16 (3 rigid, 3 flexible/charged) \\
-Orbitals & HOMO/LUMO for all 16; localisation for EY$^{2-}$ and Mes-Acr$^+$ \\
-Figure fixes & Redox lines removed; MMFF-geometry molecules marked \\
+DFT geometries & 6 of 16 (3 rigid, 3 flexible/charged); D3(BJ) test re-optimisations for BP and TX \\
+Orbitals & HOMO/LUMO for all 16 (step 3 rerun on the new geometries); localisation for EY$^{2-}$ (DFT geometry) and Mes-Acr$^+$ \\
+Geometry check & Step 5 run: $|\Delta\text{gap}| \le 0.03$~eV rigid, $\le 0.15$~eV flexible \\
+Dispersion & D3/D4 working on the Mac; validated \\
+Documentation & README and REPORT updated; code-architecture chart \\
 \midrule
-\multicolumn{2}{@{}l}{\textbf{Outstanding}} \\
+\multicolumn{2}{@{}l}{\textbf{Plan (proposed order)}} \\
 \midrule
-Rerun step 3 & for EY, RF, RhB on their DFT geometries; then run step 5 \\
-Remaining geometries & 10 molecules, depending on the step-5 result \\
-TDDFT & not started; needed for any comparison with absorption energies \\
-CT functional & CAM-B3LYP or $\omega$B97X-D for Mes-Acr$^+$ and 4CzIPN \\
-Dispersion & D3 unavailable on the Mac; affects stacked or twisted structures \\
-Solids (Week 2) & \texttt{solids/qe/} is empty; Materials Project and periodic DFT not started \\
+1. Geometries & DFT optimisation of the remaining 10 dyes, rose bengal and fluorescein first; then rerun steps 3 and 5. Run with sleep disabled or on a cluster; test whether gas-phase optimisation plus a solvated single point reproduces the gaps (about one third of the cost per step) \\
+2. TDDFT & S$_1$/T$_1$ excitation energies, so computed transitions (not orbital gaps) are compared with absorption \\
+3. CT functional & CAM-B3LYP or $\omega$B97X-D for the charge-transfer dyes (Mes-Acr$^+$, 4CzIPN) \\
+4. Basis / dispersion & def2-TZVP single points; D3(BJ) re-optimisation of the flexible dyes \\
+5. Extend the set & anthraquinone-2-sulfonate \\
 \midrule
-\multicolumn{2}{@{}l}{\textbf{Stale documents}} \\
+\multicolumn{2}{@{}l}{\textbf{Scope}} \\
 \midrule
-\texttt{README.md}, \texttt{REPORT.md} & last updated 17 Oct; don't mention the three new
-optimisations, the \texttt{flat} criteria, step 5, or the diagram changes \\
-\texttt{data/catalysts.csv} & the original 29-entry list, superseded by
-\texttt{organic\_photocatalysts.csv} but still present \\
+Solid-state work & not covered by this summary \\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -460,21 +579,23 @@ optimisations, the \texttt{flat} criteria, step 5, or the diagram changes \\
   \item Why did eosin~Y need the \texttt{flat} criteria, and why is that still a valid minimum?
   \item The three flexible dyes have RMSDs of 0.17--0.40~\AA. Which atoms moved, and why might
   that matter less for the orbitals than the RMSD suggests?
-  \item What exactly does step~5 compare, and why does it currently skip every flexible
-  molecule?
+  \item What exactly does step~5 compare, and what did it show for rigid vs flexible dyes?
   \item Name three different ``gaps'' and the calculation each one needs.
   \item Why is ``the HOMO of Mes-Acr$^+$'' not a meaningful label here?
-  \item What does the \texttt{pyscf.dispersion} workaround do, and what does it cost us?
+  \item Why did \texttt{pyscf-dispersion} fail on the Mac, and why can D3 not change the HOMO/LUMO
+  at a fixed geometry?
+  \item The rhodamine~B optimisation ``took 19~h''. What actually limited it, and which part of a
+  single step is the most expensive?
 \end{enumerate}
 
 \section{Questions worth raising with your PI}
 \begin{itemize}
-  \item Is a geometry sensitivity below about 0.1~eV in the gap enough to keep MMFF geometries for
-  the rest, or does the group want all molecules DFT-optimised regardless?
+  \item The geometry error is up to 0.15~eV for flexible dyes. Should all remaining
+  dyes be DFT-optimised, or only the flexible/charged ones?
   \item For TDDFT, which functional does the group prefer (B3LYP for comparability,
-  CAM-B3LYP/$\omega$B97X-D for charge-transfer dyes)?
-  \item Is there cluster time for the larger molecules? Rhodamine~B alone took about 19~h.
-  \item Should Week~2 (solids) start now in parallel, or after TDDFT?
+  CAM-B3LYP/\allowbreak$\omega$B97X-D for charge-transfer dyes)?
+  \item Is there cluster time for the larger molecules? One rhodamine~B optimisation step takes 6~min on the laptop (about 2~h per optimisation), and TDDFT and the larger dyes will cost considerably more.
+  \item Should the production level include D3(BJ) from now on, for comparability with the literature?
 \end{itemize}
 
 \end{document}

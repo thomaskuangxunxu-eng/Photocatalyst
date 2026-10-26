@@ -99,5 +99,9 @@ these three is not meaningful at this level. Eosin Y²⁻ (DFT geometry) HOMO an
 - PySCF: molecular DFT (single points, geometry optimisation with geomeTRIC, cube files).
 - py3Dmol: interactive inspection in HTML. It has no headless PNG export, so static isosurfaces were rendered by marching cubes in matplotlib.
 
-**Environment caveats.** `pyscf-dispersion` failed to load its bundled library in this environment, so no D3 correction was applied
-(minor effect on frontier orbitals of rigid π systems). Ground-state KS orbital energies are not redox potentials (see the frontier-orbital section).
+**Dispersion.** All stored results are without dispersion correction. The PyPI `pyscf-dispersion` 1.0.0 cannot load on Apple
+Silicon: it calls `load_library()` without its path argument and ships x86_64-only binaries. D3/D4 now run through
+`utils/dispersion_shim.py`, which sits on the conda-forge `dftd3-python` / `dftd4-python` builds of the same libraries.
+D3 does not change the Kohn–Sham orbitals at a fixed geometry. It affects the results only through optimised geometries:
+re-optimising benzophenone and thioxanthone with D3(BJ) moved them by ≤ 0.022 Å heavy-atom RMSD and their gaps by ≤ 0.006 eV.
+The effect on the flexible dyes is not yet measured. Ground-state KS orbital energies are not redox potentials (see the frontier-orbital section).

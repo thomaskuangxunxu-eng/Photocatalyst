@@ -13,10 +13,19 @@ conda env create -f environment.yml
 conda activate photocat
 ```
 
-All scripts run from the repository root and import `utils/common.py` before PySCF. In the tested
-environment, `pyscf-dispersion` failed to load its library and broke `import pyscf`. `utils/common.py`
-detects this and turns dispersion off, so **no D3 correction is applied** anywhere below. Pass
-`--disp d3bj` to `molecules/02_optimize.py` on a machine where dispersion works.
+All scripts run from the repository root and import `utils/common.py` before PySCF.
+
+**Dispersion (D3/D4).** Do not install `pyscf-dispersion`. Version 1.0.0 calls NumPy's
+`load_library()` without its required path argument and ships x86_64-only libraries, so it breaks
+`import pyscf` on Apple Silicon. Instead, `utils/dispersion_shim.py` provides `pyscf.dispersion` on top of
+the conda-forge `dftd3-python` / `dftd4-python` bindings (the same Grimme-group libraries, native arm64),
+and `utils/common.py` loads it automatically. Use `--disp d3bj` (or `d3zero`, `d4`) with
+`molecules/02_optimize.py`; D3 geometries go to `molecules/xyz_opt_d3bj/`.
+- **Validation:** D3 is additive to the SCF energy to 10⁻¹⁵ Ha, and analytic and finite-difference gradients agree to 4×10⁻¹³ Ha/bohr.
+- **No effect on orbitals at a fixed geometry.** D3 is a post-SCF energy term, so the HOMO/LUMO energies there are unchanged.
+- **The stored results are without dispersion.** For benzophenone and thioxanthone, re-optimising with
+  D3(BJ) moved the geometry by ≤ 0.022 Å heavy-atom RMSD and the gap by ≤ 0.006 eV.
+  The flexible dyes (eosin Y, riboflavin, rhodamine B) have not been re-optimised with D3 yet.
 
 ## Layout
 
@@ -77,7 +86,8 @@ and have no script.
 
 These were planned in the previous version of this repo (commit `d07776c`) and are not part of the current results:
 
-- TDDFT excitation energies and def2-TZVP single points (current orbitals are B3LYP/def2-SVP, no D3).
+- TDDFT excitation energies and def2-TZVP single points (current orbitals are B3LYP/def2-SVP).
+- D3(BJ) re-optimisation of the flexible dyes (eosin Y, riboflavin, rhodamine B); D3 is available, but those geometries are still without it.
 - DFT geometries for the 10 MMFF-only molecules, most importantly RB²⁻ and FL²⁻ (eosin Y scaffold) and the large 4CzIPN / TPP.
 - Anthraquinone-2-sulfonate, Ru(bpy)₃²⁺, fac-Ir(ppy)₃, decatungstate (TBADT) and GaN. The old
   `data/catalysts.csv` with these entries is still in git history.

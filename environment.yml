@@ -12,11 +12,14 @@ dependencies:
   - rdkit
   - pyscf             # tested with 2.14.0
   - geometric         # geometry optimizer used by molecules/02_optimize.py
+  - dftd3-python      # D3 dispersion (simple-dftd3), native arm64; used via utils/dispersion_shim.py
+  - dftd4-python      # D4 dispersion; same
   - py3dmol
   - pymatgen
   - ase
   - requests
   - pip:
       - mp-api        # Materials Project client (solids/02_materials_project.py)
-      # - pyscf-dispersion   # D3/D4. In the tested env its libs-dftd3 failed to load and broke
-      #                      # `import pyscf`; utils/common.py works around it, but D3 is then unavailable.
+      # Do NOT add pyscf-dispersion: v1.0.0 calls numpy load_library() without loader_path and ships
+      # x86_64-only libraries, so it breaks `import pyscf` on Apple Silicon. dftd3-python / dftd4-python
+      # above replace it (utils/dispersion_shim.py).

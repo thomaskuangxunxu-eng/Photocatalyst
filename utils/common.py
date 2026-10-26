@@ -15,28 +15,46 @@ H2_LEVEL_EV = -4.44           # H+/H2 on the absolute (vacuum) scale
 O2_LEVEL_EV = -5.67           # O2/H2O on the absolute scale
 
 
-def _import_pyscf():
-    """Import pyscf, working around a broken pyscf-dispersion build.
+def _purge_pyscf():
+    for k in [k for k in sys.modules if k == "pyscf" or k.startswith("pyscf.")]:
+        del sys.modules[k]
 
-    In the photocat env, pyscf-dispersion fails to load its bundled libs-dftd3
-    (numpy load_library() missing 'loader_path'), which makes `import pyscf` crash.
-    If that happens, register an empty `pyscf.dispersion` so pyscf takes its own
-    ImportError fallback (no D3/D4 available, everything else works).
+
+def _import_pyscf():
+    """Import pyscf with a working D3/D4 dispersion backend where possible.
+
+    Order of preference:
+      1. utils/dispersion_shim.py - pyscf.dispersion re-implemented on the conda-forge
+         `dftd3-python` / `dftd4-python` bindings (works on Apple Silicon).
+      2. the PyPI `pyscf-dispersion` package, if it imports cleanly (e.g. x86-64 Linux).
+      3. no dispersion: an empty pyscf.dispersion placeholder so `import pyscf` still works.
+    pyscf-dispersion 1.0.0 is broken on arm64 Macs (load_library() call without loader_path,
+    and x86_64-only binaries), which is why the shim comes first.
+    Returns (pyscf module, backend name or None).
     """
+    if "pyscf" in sys.modules:   # imported before utils.common: cannot swap the backend any more
+        try:
+            from pyscf.dispersion import dftd3  # noqa: F401
+            return sys.modules["pyscf"], "already-imported pyscf.dispersion"
+        except Exception:
+            return sys.modules["pyscf"], None
+    from utils import dispersion_shim
+    if dispersion_shim.install():
+        return importlib.import_module("pyscf"), "simple-dftd3 / dftd4 (utils/dispersion_shim.py)"
     try:
         mod = importlib.import_module("pyscf")
-        from pyscf.dispersion import dftd3  # noqa: F401  (raises TypeError when broken)
-        return mod, True
+        from pyscf.dispersion import dftd3  # noqa: F401
+        return mod, "pyscf-dispersion"
     except ImportError:
-        return importlib.import_module("pyscf"), False   # package simply not installed
-    except TypeError:
-        for k in [k for k in sys.modules if k == "pyscf" or k.startswith("pyscf.")]:
-            del sys.modules[k]
+        return importlib.import_module("pyscf"), None      # no dispersion package at all
+    except (TypeError, OSError):                            # broken pyscf-dispersion build
+        _purge_pyscf()
         sys.modules["pyscf.dispersion"] = types.ModuleType("pyscf.dispersion")
-        return importlib.import_module("pyscf"), False
+        return importlib.import_module("pyscf"), None
 
 
-pyscf, DISPERSION_AVAILABLE = _import_pyscf()
+pyscf, DISPERSION_BACKEND = _import_pyscf()
+DISPERSION_AVAILABLE = DISPERSION_BACKEND is not None
 
 
 def read_xyz(path):
@@ -77,7 +95,8 @@ def make_rks(mol, xc="b3lyp", solvent="water", disp=None, conv_tol=1e-8):
     mf = dft.RKS(mol, xc=xc).density_fit()
     if disp:
         if not DISPERSION_AVAILABLE:
-            raise RuntimeError("pyscf-dispersion is not usable in this environment; rerun with --disp none")
+            raise RuntimeError("no dispersion backend: `conda install -c conda-forge dftd3-python dftd4-python` "
+                               "(see utils/dispersion_shim.py), or run without --disp")
         mf.disp = disp
     if solvent == "water":
         mf = mf.ddCOSMO(); mf.with_solvent.eps = WATER_EPS
